@@ -519,3 +519,186 @@ CREATE INDEX IX_DESNAME ON DESIGNATION (DESIGNATION_NAME)
 SELECT E.FIRST_NAME, E.LAST_NAME, D.DESIGNATION_NAME  FROM EMPLOYEE E 
 JOIN DESIGNATION D ON E.DESIGNATION_ID = D.DESIGNATION_ID
 WHERE DESIGNATION_NAME = 'FRONTLINE EMPLOYEES'
+
+/***********************************************************************************************************************/
+ --TRIGGERS
+ --1.Trigger to automatically update the HireDate of an employee when their record is inserted
+
+CREATE TRIGGER T_EMPLOYEE_UPDATEHIREDATE ON EMPLOYEE FOR INSERT
+AS
+BEGIN	
+	UPDATE EMPLOYEE SET HIREDATE = ISNULL(I.HIREDATE, GETDATE())
+    FROM EMPLOYEE E
+    INNER JOIN INSERTED I ON E.EMP_ID = I.EMP_ID
+    WHERE E.HIREDATE IS NULL;
+END
+
+INSERT INTO EMPLOYEE (FIRST_NAME, LAST_NAME, DOB, GENDER, EMP_ADDRESS, CONTACT_NUMBER, EMAIL) 
+VALUES
+('SHERLOCK', 'HOLMES', '1979-01-11', 'MALE', 'BAKER STREET', '6784543210', 'sherlockholmes@email.com')
+('JAMES', 'BOND', '1989-01-11', 'MALE', 'NEW YORK', '9800721007', 'jamesbond007@email.com', '2022-09-07')
+
+SELECT * FROM EMPLOYEE
+------------------------------------------------------------------------------------------------------------------------
+--2.Trigger to update the ModifiedDate of an employee when their record is updated
+CREATE TABLE MODIFIED(
+ MODIFIEDID INT IDENTITY(1,1) PRIMARY KEY,
+ EMPLOYEE_ID INT,
+ MODIFIEDDATE DATE
+)
+
+
+ALTER TRIGGER T_UpdateModifiedDate ON EMPLOYEE AFTER UPDATE
+AS
+BEGIN
+DECLARE @V_EID INT
+	IF UPDATE(FIRST_NAME)
+	SELECT @V_EID = EMP_ID FROM INSERTED
+	BEGIN
+		INSERT INTO MODIFIED(EMPLOYEE_ID, MODIFIEDDATE)
+		VALUES(@V_EID, GETDATE())
+	END
+END
+UPDATE EMPLOYEE SET FIRST_NAME = 'MYCROFT' WHERE EMP_ID = 1018
+SELECT * FROM MODIFIED
+SELECT * FROM EMPLOYEE
+-------------------------------------------------------------------------------------------------------------------------------
+--3.Trigger to delete salary records of an employee when they are deleted from the Employee table
+
+CREATE TRIGGER T_SALARY_DELEMP ON EMPLOYEE FOR DELETE
+AS
+DECLARE @V_EID INT;
+BEGIN
+	SELECT @V_EID = EMP_ID FROM DELETED;
+	DELETE FROM SALARY WHERE EMPLOYEE_ID = @V_EID;
+END
+
+INSERT INTO SALARY(EMPLOYEE_ID, PAYROLL_PERIOD_ID, BASIC_SALARY, ALLOWANCES, DEDUCTIONS)
+VALUES
+(1016, 5013, 71674, 7514, 3483),
+(1017, 5013, 71674, 7514, 3483)
+SELECT * FROM SALARY
+
+DELETE FROM EMPLOYEE WHERE EMP_ID = 1017
+
+-------------------------------------------------------------------------------------------------------------------------------
+--4.Trigger to enforce a constraint where the EndDate of a leave must be greater than or equal to the StartDate
+
+CREATE TRIGGER T_CHECKINGLEAVEDATES ON LEAVE FOR INSERT, UPDATE
+AS
+BEGIN
+	IF EXISTS(SELECT * FROM LEAVE INSERTED WHERE ENDDATE < STARTDATE)
+		RAISERROR ('END DATE MUST BE GREATER THAN START DATE', 16, 1);
+END
+
+INSERT INTO LEAVE (EMPLOYEE_ID, LEAVE_TYPE, STARTDATE, ENDDATE)
+VALUES
+(1002, 'VACATION', '2023-06-26', '2023-06-20')
+UPDATE LEAVE SET STARTDATE = '2023-06-27' WHERE LEAVE_ID = 9003
+SELECT * FROM LEAVE
+
+/***********************************************************************************************************************/
+ --CURSORS
+
+ --1.Query using a cursor to fetch and display all employees' names
+
+ DECLARE @V_FIRSTNAME VARCHAR(50), 
+		 @V_LASTNAME VARCHAR(50),
+		 @V_EID INT
+
+DECLARE DISPNAMES CURSOR FOR
+SELECT EMP_ID, FIRST_NAME, LAST_NAME FROM EMPLOYEE
+OPEN DISPNAMES
+		FETCH NEXT FROM DISPNAMES INTO @V_EID, @V_FIRSTNAME, @V_LASTNAME
+		WHILE(@@FETCH_STATUS = 0)
+		BEGIN
+			PRINT CAST(@V_EID  AS VARCHAR(10)) + '   ' + @V_FIRSTNAME + '   ' + @V_LASTNAME;
+			FETCH NEXT FROM DISPNAMES INTO @V_EID, @V_FIRSTNAME, @V_LASTNAME;
+		END
+CLOSE DISPNAMES
+DEALLOCATE DISPNAMES
+
+-------------------------------------------------------------------------------------------------------------------------------
+--2.Query using a cursor to update the basic salary of all employees by a certain percentage
+SELECT * FROM SALARY
+DECLARE @V_EID INT,
+		@V_NEWSAL DECIMAL(10,2),
+		@V_PERCENTAGE FLOAT
+		SET @V_PERCENTAGE = 10.0
+
+DECLARE CHANGESAL CURSOR FOR 
+SELECT EMPLOYEE_ID, BASIC_SALARY FROM SALARY
+OPEN CHANGESAL;
+FETCH NEXT FROM CHANGESAL INTO @V_EID, @V_NEWSAL;
+WHILE(@@FETCH_STATUS = 0)
+
+BEGIN
+	SET @V_NEWSAL = @V_NEWSAL + (@V_NEWSAL * @V_PERCENTAGE / 100);
+	UPDATE SALARY SET BASIC_SALARY = @V_NEWSAL WHERE EMPLOYEE_ID = @V_EID;
+	FETCH NEXT FROM CHANGESAL INTO @V_EID, @V_NEWSAL;
+END
+CLOSE CHANGESAL
+DEALLOCATE CHANGESAL
+-------------------------------------------------------------------------------------------------------------------------------
+--3.Query using a cursor to delete all employees who have left the organization
+
+DECLARE @V_EID INT
+DECLARE LEFTEMP CURSOR FOR
+SELECT EMP_ID FROM EMPLOYEE WHERE SERVICE_STATUS = 'LEFT';
+OPEN LEFTEMP
+FETCH NEXT FROM LEFTEMP INTO @V_EID;
+
+WHILE(@@FETCH_STATUS = 0)
+BEGIN
+	DELETE FROM EMPLOYEE WHERE EMP_ID = @V_EID;
+	FETCH NEXT FROM LEFTEMP INTO @V_EID;
+END
+CLOSE LEFTEMP
+DEALLOCATE LEFTEMP
+
+INSERT INTO EMPLOYEE (FIRST_NAME, LAST_NAME, DOB, GENDER, EMP_ADDRESS, CONTACT_NUMBER, EMAIL, HIREDATE, SERVICE_STATUS) 
+VALUES
+('SRIKANTH', 'B', '1999-01-11', 'MALE', 'HYDERABAD', '9876471140', 'srikanthb@email.com', '2021-09-07', 'LEFT')
+SELECT * FROM EMPLOYEE
+-------------------------------------------------------------------------------------------------------------------------------
+--4.Query using a cursor to update employee designations based on their years of service
+
+DECLARE @V_EID INT,
+		@V_HDATE DATE,
+		@V_EXP INT
+
+DECLARE EXPCURSOR CURSOR FOR 
+SELECT EMP_ID, HIREDATE FROM EMPLOYEE
+OPEN EXPCURSOR
+FETCH NEXT FROM EXPCURSOR INTO @V_EID, @V_HDATE
+
+WHILE(@@FETCH_STATUS = 0)
+BEGIN
+	SET @V_EXP = DATEDIFF(YEAR, @V_HDATE, GETDATE())
+	IF (@V_EXP >= 5)
+		UPDATE EMPLOYEE SET SERVICE_STATUS = 'SENIOR' WHERE EMP_ID = @V_EID;
+	ELSE
+		UPDATE EMPLOYEE SET SERVICE_STATUS = 'JUNIOR' WHERE EMP_ID = @V_EID;
+	FETCH NEXT FROM EXPCURSOR INTO @V_EID, @V_HDATE
+END
+
+CLOSE EXPCURSOR
+DEALLOCATE EXPCURSOR
+-------------------------------------------------------------------------------------------------------------------------------
+--5.Query using a cursor to calculate the total salary for each employee and display the results
+DECLARE @V_EID INT, @V_NETSAL INT
+DECLARE DISPNETSAL CURSOR FOR
+SELECT EMPLOYEE_ID, NETSALARY FROM SALARY
+OPEN DISPNETSAL
+
+FETCH NEXT FROM DISPNETSAL INTO @V_EID, @V_NETSAL
+WHILE(@@FETCH_STATUS = 0)
+BEGIN
+	PRINT CAST(@V_EID AS VARCHAR(20)) + '   ' + CAST(@V_NETSAL AS VARCHAR(20))
+	FETCH NEXT FROM DISPNETSAL INTO @V_EID, @V_NETSAL
+END
+CLOSE DISPNETSAL
+DEALLOCATE DISPNETSAL
+SELECT * FROM EMPLOYEE
+
+/***********************************************************************************************************************/
