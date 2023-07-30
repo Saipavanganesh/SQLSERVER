@@ -584,10 +584,10 @@ DELETE FROM EMPLOYEE WHERE EMP_ID = 1017
 -------------------------------------------------------------------------------------------------------------------------------
 --4.Trigger to enforce a constraint where the EndDate of a leave must be greater than or equal to the StartDate
 
-CREATE TRIGGER T_CHECKINGLEAVEDATES ON LEAVE FOR INSERT, UPDATE
+ALTER TRIGGER T_CHECKINGLEAVEDATES ON LEAVE FOR INSERT, UPDATE
 AS
 BEGIN
-	IF EXISTS(SELECT * FROM LEAVE INSERTED WHERE ENDDATE < STARTDATE)
+	IF EXISTS(SELECT * FROM INSERTED  WHERE ENDDATE < STARTDATE)
 		RAISERROR ('END DATE MUST BE GREATER THAN START DATE', 16, 1);
 END
 
@@ -702,3 +702,4 @@ DEALLOCATE DISPNETSAL
 SELECT * FROM EMPLOYEE
 
 /***********************************************************************************************************************/
+SELECT EMPLOYEE_ID FROM SALARY LEAVE
